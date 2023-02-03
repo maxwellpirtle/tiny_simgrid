@@ -1520,8 +1520,8 @@ void UnfoldingChecker::extend(Configuration C, std::list<EventSet> maxEvtHistory
     for (auto evt : exC) {
       /* add new event evt to enC if evt's transition is not dependent with any
       transition of a event which is in C and is not in history of evt */
-      bool chk          = true;
-      EventSet evtHisty = evt->getHistory();
+      bool chk = true;
+      // EventSet evtHisty = evt->getHistory();
       for (auto it : C.events_)
         if (it->isConflict(it, evt))
           chk = false;
@@ -1687,12 +1687,14 @@ void UnfoldingChecker::explore(Configuration C, std::list<EventSet> maxEvtHistor
 void UnfoldingChecker::remove(UnfoldingEvent* e, Configuration C, EventSet D)
 {
 
-  EventSet unionSet, res, res1;
-  unionSet = EvtSetTools::makeUnion(C.events_, D);
+  EventSet c_union_d, res, res1;
 
-  // building Qcdu
+  // C \union D
+  c_union_d = EvtSetTools::makeUnion(C.events_, D);
+
+  // ------ Q_C,D ------
   for (auto e1 : g_var::U) {
-    for (auto e2 : unionSet) {
+    for (auto e2 : c_union_d) {
       // add e1 which is immediate conflict with one event in C u D to res
       if (e1->isImmediateConflict1(e1, e2)) {
         EvtSetTools::pushBack(res, e1);
@@ -1701,15 +1703,18 @@ void UnfoldingChecker::remove(UnfoldingEvent* e, Configuration C, EventSet D)
     }
   }
 
+  // res \subseteq E
+  // Compute [e] for each e \in res
   res1 = res;
   for (auto e1 : res1) {
     EventSet h = e1->getHistory();
     res        = EvtSetTools::makeUnion(res, h);
   }
 
-  res = EvtSetTools::makeUnion(res, unionSet);
-  // move e from U to G if the condition is satisfied
+  res = EvtSetTools::makeUnion(res, c_union_d);
+  // ------ Q_C,D ------
 
+  // move e from U to G if the condition is satisfied
   if (!EvtSetTools::contains(res, e)) {
     EvtSetTools::remove(g_var::U, e);
     App::app_side_->delete_state(e->get_state_id());
@@ -1719,6 +1724,9 @@ void UnfoldingChecker::remove(UnfoldingEvent* e, Configuration C, EventSet D)
   EventSet U1 = g_var::U;
   for (auto evt : U1) {
     if (evt->isImmediateConflict1(evt, e)) {
+      // This should be a method on EventSet -> local_configuration()
+      // get_causes()
+      // Events in the local configuration
       EventSet h = evt->getHistory();
       EvtSetTools::pushBack(h, evt);
 
