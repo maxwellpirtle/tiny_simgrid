@@ -155,8 +155,8 @@ void TEST_10()
   // 3 traces
   // Transition(read_write, access_variable)
 
-  std::vector<S_TRANSITION_PARAMS_2> p0 = {{1, 0}, {1, 0}};
-  std::vector<S_TRANSITION_PARAMS_2> p1 = {{1, 1}, {1, 0}};
+  std::vector<S_TRANSITION_PARAMS_2> p0 = {{1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 0}, {1, 0}};
+  std::vector<S_TRANSITION_PARAMS_2> p1 = {{1, 1}, {1, 0}, {1, 1}, {1, 0}};
 
   app_side->create_actor(0, p0);
   app_side->create_actor(1, p1);

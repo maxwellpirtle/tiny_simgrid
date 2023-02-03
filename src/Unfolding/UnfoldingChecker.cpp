@@ -23,13 +23,15 @@ EventSet g_var::gD;
 std::tuple<bool, bool, bool> func(UnfoldingEvent* it, std::list<UnfoldingEvent*>& EvtList1, EventSet& J, unsigned int n,
                                   unsigned long sizeD, int inter)
 {
-  bool check = false;
-  for (auto evt : EvtList1) {
-    if (it->isConflict(it, evt)) {
-      check = true;
-      break;
-    }
-  }
+  const bool check =
+      std::any_of(EvtList1.begin(), EvtList1.end(), [=](UnfoldingEvent* event) { return it->isConflict(it, event); });
+  // bool check = false;
+  // for (auto evt : EvtList1) {
+  //   if (it->isConflict(it, evt)) {
+  //     check = true;
+  //     break;
+  //   }
+  // }
   if (check)
     return std::make_tuple(true, false, false);
 
@@ -51,32 +53,31 @@ std::tuple<bool, bool, bool> func(UnfoldingEvent* it, std::list<UnfoldingEvent*>
 /* this function select one event in every EventSet in a list to form a set,
  *  if they are not conflict with each other -> return the set J
  */
-void ksubset(unsigned long sizeD, std::list<UnfoldingEvent*> EvtList, std::list<EventSet> list, unsigned int n,
-             EventSet& J)
+void ksubset(unsigned long sizeD, std::list<UnfoldingEvent*> EvtList, std::list<EventSet> uCombKNoConflict,
+             unsigned int n, EventSet& J)
 {
   if (J.size() > 0)
     return;
 
   std::list<UnfoldingEvent*> EvtList1 = EvtList;
-  std::list<UnfoldingEvent*> EvtList2;
 
-  if (list.size() > 0) {
-    EventSet intS = list.back();
+  if (uCombKNoConflict.size() > 0) {
+    EventSet intS = uCombKNoConflict.back();
 
-    std::list<EventSet> list1 = list;
-    list1.pop_back();
+    std::list<EventSet> uCombKNoConflict1 = uCombKNoConflict;
+    uCombKNoConflict1.pop_back();
 
     auto inter = 0;
-    for (auto it : intS) {
-      auto tuple = func(it, EvtList1, J, n, sizeD, inter);
-      auto check = std::get<0>(tuple);
-      if (check)
+    for (auto event : intS) {
+      const auto tuple                 = func(event, EvtList1, J, n, sizeD, inter);
+      const auto conflicts_with_evlist = std::get<0>(tuple);
+      if (conflicts_with_evlist)
         continue;
-      auto exit = std::get<1>(tuple);
+      const auto exit = std::get<1>(tuple);
       if (exit)
         return;
       if (J.size() == 0)
-        ksubset(sizeD, EvtList1, list1, n + 1, J);
+        ksubset(sizeD, EvtList1, uCombKNoConflict1, n + 1, J);
       inter++;
     }
   }
@@ -104,12 +105,12 @@ void check_event_to_remove(UnfoldingEvent* evt, EventSet& evtS, EventSet const& 
     EvtSetTools::remove(evtS, evt);
 }
 
-bool remove_conflict_with_c(std::list<EventSet> const& kSet, std::list<EventSet>& kSet1, EventSet const& D,
+bool remove_conflict_with_c(std::list<EventSet> const& uCombK, std::list<EventSet>& uCombKNoConflict, EventSet const& D,
                             Configuration const& C)
 {
-  for (auto it : kSet) {
-    EventSet evtS = it;
-    for (auto evt : it) {
+  for (auto spike : uCombK) {
+    EventSet evtS = spike;
+    for (auto evt : spike) {
       check_event_to_remove(evt, evtS, D, C);
     }
 
@@ -117,7 +118,7 @@ bool remove_conflict_with_c(std::list<EventSet> const& kSet, std::list<EventSet>
       return false;
     }
 
-    kSet1.push_back(evtS);
+    uCombKNoConflict.push_back(evtS);
   }
   return true;
 }
@@ -128,25 +129,25 @@ EventSet UnfoldingChecker::KpartialAlt(EventSet D, Configuration C) const
   EventSet J1;
   EventSet emptySet;
   EventSet result;
-  std::list<EventSet> kSet;
+  std::list<EventSet> uCombK;
 
   /*for each evt in D, add all evt1 in U that is conflict with evt to a
    * set(spike) */
 
   for (auto evt : D) {
-    EventSet evtSet;
+    EventSet spike;
     for (auto evt1 : g_var::U)
       if (evt->isConflict(evt, evt1))
-        EvtSetTools::pushBack(evtSet, evt1);
+        EvtSetTools::pushBack(spike, evt1);
 
-    kSet.push_back(evtSet);
+    uCombK.push_back(spike);
   }
 
-  if (kSet.size() < D.size())
+  if (uCombK.size() < D.size())
     return emptySet;
 
-  std::list<EventSet> kSet1;
-  auto ret = remove_conflict_with_c(kSet, kSet1, D, C);
+  std::list<EventSet> uCombKNoConflict;
+  auto ret = remove_conflict_with_c(uCombK, uCombKNoConflict, D, C);
   if (!ret)
     return emptySet;
 
@@ -155,7 +156,7 @@ EventSet UnfoldingChecker::KpartialAlt(EventSet D, Configuration C) const
   auto n = 0;
   std::list<UnfoldingEvent*> EvtList;
 
-  ksubset(D.size(), EvtList, kSet1, n, J1);
+  ksubset(D.size(), EvtList, uCombKNoConflict, n, J1);
 
   // J1.size() can be < D.size() since one event in J1 can be conflict with some
   // events in D
@@ -165,6 +166,7 @@ EventSet UnfoldingChecker::KpartialAlt(EventSet D, Configuration C) const
     return emptySet;
   }
 
+  // Include [evt]
   for (auto evt : J1) {
     EventSet history = evt->getHistory();
     J                = EvtSetTools::makeUnion(J, history);
@@ -439,18 +441,18 @@ void create_events_from_trans_and_maxEvent(std::tuple<Configuration, bool, std::
        by getting evts in the maximal evts but not in the history of
      causalityEvts*/
 
-  for (auto evtSet : maxEvtHistory) {
+  for (auto spike : maxEvtHistory) {
     EventSet evtS;
 
     // put ids of events that are not in the history of evts in causalityEvts
     // into a set intS1 if history candidate is not empty then try create new
     // evts from its subset
-    if (!evtSet.empty()) {
+    if (!spike.empty()) {
 
       // retrieve  evts in congig from intS1 (intS1 store id of evts in C whose
       // transitions are dependent with trans)
       EventSet evtSet1;
-      for (auto evt : evtSet) {
+      for (auto evt : spike) {
         auto evt_trans_tag = evt->get_transition_tag();
         auto is_dependent  = App::app_side_->check_transition_dependency(evt_trans_tag, trans_tag);
         if ((!EvtSetTools::contains(H, evt)) && is_dependent)
