@@ -20,11 +20,11 @@ EventSet g_var::G;
 EventSet g_var::gD;
 
 // std::tuple<check_is_true, return_from_func, normal_end>
-std::tuple<bool, bool, bool> func(UnfoldingEvent* it, std::list<UnfoldingEvent*>& EvtList1, EventSet& J, unsigned int n,
-                                  unsigned long sizeD, int inter)
+std::tuple<bool, bool, bool> func(UnfoldingEvent* event, std::list<UnfoldingEvent*>& EvtList, EventSet& J,
+                                  unsigned int n, unsigned long sizeD, int inter)
 {
   const bool check =
-      std::any_of(EvtList1.begin(), EvtList1.end(), [=](UnfoldingEvent* event) { return it->isConflict(it, event); });
+      std::any_of(EvtList.begin(), EvtList.end(), [=](UnfoldingEvent* e) { return event->isConflict(e, event); });
   // bool check = false;
   // for (auto evt : EvtList1) {
   //   if (it->isConflict(it, evt)) {
@@ -39,11 +39,11 @@ std::tuple<bool, bool, bool> func(UnfoldingEvent* it, std::list<UnfoldingEvent*>
   // new one
 
   if (inter > 0)
-    EvtList1.pop_back();
-  EvtList1.push_back(it);
+    EvtList.pop_back();
+  EvtList.push_back(event);
 
-  if ((n == sizeD - 1) && (EvtList1.size() == sizeD)) {
-    for (auto evt : EvtList1)
+  if ((n == sizeD - 1) && (EvtList.size() == sizeD)) {
+    for (auto evt : EvtList)
       EvtSetTools::pushBack(J, evt);
     return std::make_tuple(false, true, false);
   }
@@ -56,30 +56,24 @@ std::tuple<bool, bool, bool> func(UnfoldingEvent* it, std::list<UnfoldingEvent*>
 void ksubset(unsigned long sizeD, std::list<UnfoldingEvent*> EvtList, std::list<EventSet> uCombKNoConflict,
              unsigned int n, EventSet& J)
 {
-  if (J.size() > 0)
+  if (J.size() > 0 || uCombKNoConflict.empty())
     return;
 
-  std::list<UnfoldingEvent*> EvtList1 = EvtList;
+  const EventSet spike = uCombKNoConflict.back();
+  uCombKNoConflict.pop_back();
 
-  if (uCombKNoConflict.size() > 0) {
-    EventSet intS = uCombKNoConflict.back();
-
-    std::list<EventSet> uCombKNoConflict1 = uCombKNoConflict;
-    uCombKNoConflict1.pop_back();
-
-    auto inter = 0;
-    for (auto event : intS) {
-      const auto tuple                 = func(event, EvtList1, J, n, sizeD, inter);
-      const auto conflicts_with_evlist = std::get<0>(tuple);
-      if (conflicts_with_evlist)
-        continue;
-      const auto exit = std::get<1>(tuple);
-      if (exit)
-        return;
-      if (J.size() == 0)
-        ksubset(sizeD, EvtList1, uCombKNoConflict1, n + 1, J);
-      inter++;
-    }
+  auto inter = 0;
+  for (auto event : spike) {
+    const auto tuple                 = func(event, EvtList, J, n, sizeD, inter);
+    const auto conflicts_with_evlist = std::get<0>(tuple);
+    if (conflicts_with_evlist)
+      continue;
+    const auto exit = std::get<1>(tuple);
+    if (exit)
+      return;
+    if (J.empty())
+      ksubset(sizeD, EvtList, uCombKNoConflict, n + 1, J);
+    inter++;
   }
 }
 
@@ -441,18 +435,18 @@ void create_events_from_trans_and_maxEvent(std::tuple<Configuration, bool, std::
        by getting evts in the maximal evts but not in the history of
      causalityEvts*/
 
-  for (auto spike : maxEvtHistory) {
+  for (auto evnts : maxEvtHistory) {
     EventSet evtS;
 
     // put ids of events that are not in the history of evts in causalityEvts
     // into a set intS1 if history candidate is not empty then try create new
     // evts from its subset
-    if (!spike.empty()) {
+    if (!evnts.empty()) {
 
       // retrieve  evts in congig from intS1 (intS1 store id of evts in C whose
       // transitions are dependent with trans)
       EventSet evtSet1;
-      for (auto evt : spike) {
+      for (auto evt : evnts) {
         auto evt_trans_tag = evt->get_transition_tag();
         auto is_dependent  = App::app_side_->check_transition_dependency(evt_trans_tag, trans_tag);
         if ((!EvtSetTools::contains(H, evt)) && is_dependent)
@@ -1540,6 +1534,7 @@ void UnfoldingChecker::explore(std::shared_ptr<AppSide> app_side)
   Configuration C;
   EventSet prev_exC;
 
+  // CreateInitialState() + create initial event pointing to that state
   App::set_app_side(app_side);
   auto state_id = App::app_side_->create_state({}, {}, true);
   auto e        = new UnfoldingEvent(-1, "", {}, state_id);
@@ -1553,8 +1548,10 @@ void UnfoldingChecker::explore(Configuration C, std::list<EventSet> maxEvtHistor
   UnfoldingEvent* e = nullptr;
   EventSet enC, exC = prev_exC;
 
+  // REmove the current event
   EvtSetTools::remove(exC, currentEvt);
 
+  // Extend
   extend(C, maxEvtHistory, exC, enC);
 
   // ex(C) -> Removes any stragglers in ex(C) added by the
@@ -1629,6 +1626,8 @@ void UnfoldingChecker::explore(Configuration C, std::list<EventSet> maxEvtHistor
     }
   }
 
+  // TODO: What if the intersection is empty? Probably can never happen based on
+  // the guarantees of the algorithm, but it's worth checking
   if (e == nullptr) {
     std::cerr << "\n\nSOMETHING WENT WRONG. Event is null."
               << "\n";
